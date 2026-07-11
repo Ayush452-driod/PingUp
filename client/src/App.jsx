@@ -1,5 +1,5 @@
-import React from "react";
-import { Route, Routes } from "react-router-dom";
+import React ,{useRef} from "react";
+import { Route, Routes ,useLocation } from "react-router-dom";
 import Login from "./pages/Login";
 import Feed from "./pages/Feed";
 import Messages from "./pages/Messages";
@@ -11,19 +11,55 @@ import CreatePost from "./pages/CreatePost";
 import Layout from "./pages/Layout";
 import { useUser , useAuth } from "@clerk/clerk-react";
 import Loading from "./components/Loading";
-import {Toaster} from 'react-hot-toast';
+import toast, {Toaster} from 'react-hot-toast';
 import { useEffect } from "react";
+import {useDispatch} from 'react-redux';
+import { fetchUser } from "./features/user/userSlice";
+import { fetchConnections } from "./features/connections/connectionSlice";
+import { addMessages } from "./features/messages/messagesSlice";
+import Notification from "./components/Notification";
 
 function App() {
   const { isSignedIn, isLoaded, user } = useUser();
   const {getToken} = useAuth();
+  const {pathname} = useLocation();
+  const pathnameRef = useRef(pathname);
+  const dispatch = useDispatch()
 
     useEffect(()=>{
-      if(user){
-        getToken().then((token)=>console.log(token));
+       const fetchData = async()=>{
+        if(user){
+         const token = await getToken();
+         dispatch(fetchUser(token)); 
+         dispatch(fetchConnections(token));
       }
-    },[user])
+       }
+       fetchData();
+    },[user,getToken,dispatch])
 
+    useEffect(()=>{
+        pathnameRef.current = pathname
+    },[pathname])
+
+  useEffect(()=>{
+      if(user){
+        const eventSource = new EventSource(import.meta.env.VITE_BASEURL + '/api/message/'+ user.id);
+       eventSource.onmessage=(event)=>{
+        const message = JSON.parse(event.data);
+         console.log("Received SSE:", message);
+        if(pathnameRef.current===('/messages/'+ message.from_user_id._id)){
+          dispatch(addMessages(message))
+        }else{
+          toast.custom((t)=>(
+            <Notification t={t} message={message}/>
+          ),{position : "bottom-right"})
+        }
+       }
+        return ()=>{
+          eventSource.close();
+        }
+      }
+    },[user,dispatch])
   if (!isLoaded) {
     return (
       <Loading/>

@@ -2,110 +2,148 @@ import fs from 'fs';
 import imagekit from '../configs/imageKit.js';
 import Message from '../models/Message.js';
 
-
 //Create an empty object to store server side event connections
-const connections ={};
+const connections = {};
 
 //function for server side endpoint
-export const sseController = (req,res)=>{
-  const {userId} = req.params;
-  console.log('New client connected:',userId);
+export const sseController = (req, res) => {
+  const { userId } = req.params;
+  console.log('New client connected:', userId);
 
   //set serverside headers
-  res.setHeader('Content-type' , 'text/event-stream');
-  res.setHeader('Cache-Control' ,'no-cache');
-  res.setHeader('Connection','keep-alive');
-  res.setHeader('Access-Control-Allow-Origin','*');
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
 
-  //add the client 's response object to the connections object
+  //add the client's response object to the connections object
   connections[userId] = res;
 
   //send an initial event to the client
-  res.write('log :Connected to server side event stream/n/n');
+  res.write(`data: ${JSON.stringify({ connected: true })}\n\n`);
 
   //Handle client disconnection
-  req.on('close',()=> {
-    //Remove the client 's response object from the connections array
+  req.on('close', () => {
     delete connections[userId];
-    console.log('Client disconnected');
-  })
-}
+    console.log('Client disconnected:', userId);
+  });
+};
 
 
 //Send Message
-export const sendMessage = async (req,res)=>{
+export const sendMessage = async (req, res) => {
   try {
-    const {userId} = req.auth();
-    const {to_user_id , text} = req.body;
+    const { userId } = req.auth();
+    const { to_user_id, text } = req.body;
     const image = req.file;
 
     let media_url = '';
     let message_type = image ? 'image' : 'text';
 
-    if(message_type ==='image'){
+    if (message_type === 'image') {
       const fileBuffer = fs.readFileSync(image.path);
-      const response = await imagekit.upload({file : fileBuffer , fileName : image.originalname,});
+      const response = await imagekit.upload({
+        file: fileBuffer,
+        fileName: image.originalname,
+      });
+
       media_url = imagekit.url({
-        path : response.filePath,
-        transformation :[
-          {quality : 'auto'},
-          {format : 'webp'},
-          {width : '1280'}
-        ]
-      })
+        path: response.filePath,
+        transformation: [
+          { quality: 'auto' },
+          { format: 'webp' },
+          { width: '1280' },
+        ],
+      });
     }
+
     const message = await Message.create({
-      from_user_id : userId,
-      to_user_id,text,message_type,media_url,
+      from_user_id: userId,
+      to_user_id,
+      text,
+      message_type,
+      media_url,
     });
-     //Send message to to_user_id using serverside event
+
+    //Send message to to_user_id using server side event
     const messageWithUserData = await Message.findById(message._id).populate('from_user_id');
 
-    if(connections[to_user_id]){
-      connections[to_user_id].write(`data : ${JSON.stringify(messageWithUserData)}/n/n`)
+    if (connections[to_user_id]) {
+      console.log("Sending realtime message to:", to_user_id);
+
+      connections[to_user_id].write(
+        `data: ${JSON.stringify(messageWithUserData)}\n\n`
+      );
     }
-      return res.json({success : true , message});
+
+    return res.json({
+      success: true,
+      message,
+    });
 
   } catch (error) {
     console.log(error);
-    return res.json({success : false , message : error.message});
+    return res.json({
+      success: false,
+      message: error.message,
+    });
   }
-}
+};
+
 
 //get chat messages
-export const getChatMessages = async(req,res)=>{
+export const getChatMessages = async (req, res) => {
   try {
-    const {userId} = req.auth();
-    const {to_user_id} = req.body;
+    const { userId } = req.auth();
+    const { to_user_id } = req.body;
 
     const messages = await Message.find({
-      $or :[
-        {from_user_id : userId , to_user_id},
-        {from_user_id : to_user_id ,to_user_id : userId},
-      ]
-    }).sort({created_at:-1})
+      $or: [
+        { from_user_id: userId, to_user_id },
+        { from_user_id: to_user_id, to_user_id: userId },
+      ],
+    }).sort({ created_at: -1 });
 
     //mark messages as seen
-    await Message.updateMany({from_user_id : to_user_id , to_user_id :userId},{seen:true});
+    await Message.updateMany(
+      { from_user_id: to_user_id, to_user_id: userId },
+      { seen: true }
+    );
 
-    return res.json({success : true , messages});
+    return res.json({
+      success: true,
+      messages,
+    });
 
   } catch (error) {
     console.log(error);
-    return res.json({success : false , message : error.message});
+    return res.json({
+      success: false,
+      message: error.message,
+    });
   }
-}
+};
+
 
 //get user recent messages
-export const getUserRecentMessages = async (req,res)=>{
+export const getUserRecentMessages = async (req, res) => {
   try {
-    const {userId} = req.auth();
-    const messages = await Message.find({to_user_id : userId}.populate('from_user_id to_user_id')).sort({created_at:-1});
+    const { userId } = req.auth();
 
-    return res.json({success : true , messages});
+    const messages = await Message.find({ to_user_id: userId })
+      .populate('from_user_id to_user_id')
+      .sort({ created_at: -1 });
+
+    return res.json({
+      success: true,
+      messages,
+    });
 
   } catch (error) {
-     console.log(error);
-    return res.json({success : false , message : error.message});
+    console.log(error);
+    return res.json({
+      success: false,
+      message: error.message,
+    });
   }
-}
+};

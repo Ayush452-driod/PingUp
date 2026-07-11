@@ -4,49 +4,62 @@ import Post from '../models/Post.js';
 import User from '../models/User.js';
 
 // add a new post
-export const addPost = async(req,res)=>{
+export const addPost = async (req, res) => {
   try {
-    const {userId} = req.auth();
-    const {content , post_type} = req.body;
-    const images = req.files
+    const { userId } = req.auth();
+    const { content, post_type } = req.body;
+    const images = req.files || [];
 
     let image_urls = [];
-    if(images.length){
+
+    if (images.length > 0) {
       image_urls = await Promise.all(
-        image.map(async(image)=>{
+        images.map(async (image) => {
           const fileBuffer = fs.readFileSync(image.path);
-           const response = await imagekit.upload({
-              file:fileBuffer,
-             fileName:image.originalname,
-             folder : "posts",
-    });
-    const url = imagekit.url({
-      path:response.filePath,
-      transformation:[
-        {quality:'auto'},
-        {format:'webp'},
-        {width:'1280'},
-      ]
-    })
-     return url;
+
+          const response = await imagekit.upload({
+            file: fileBuffer,
+            fileName: image.originalname,
+            folder: "posts",
+          });
+
+          // Delete local file after upload
+          fs.unlinkSync(image.path);
+
+          return imagekit.url({
+            path: response.filePath,
+            transformation: [
+              {
+                quality: "auto",
+                format: "webp",
+                width: "1280",
+              },
+            ],
+          });
         })
-      )
+      );
     }
 
-      await Post.create({
-        user : userId,
-        content,
-        image_urls,
-        post_type,
-      });
+    await Post.create({
+      user: userId,
+      content,
+      image_urls,
+      post_type,
+    });
 
-      return res.json({success : true , message : 'Post created successfully'});
-
+    return res.json({
+      success: true,
+      message: "Post created successfully",
+    });
   } catch (error) {
-      console.log(error);
-      return res.json({success : false , message : error.message});
+    console.error("Add Post Error:", error);
+
+    return res.json({
+      success: false,
+      message: error.message,
+    });
   }
-}
+};
 
 // get post
 export const getFeedPosts = async(req,res)=>{

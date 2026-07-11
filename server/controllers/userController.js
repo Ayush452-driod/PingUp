@@ -122,7 +122,7 @@ export const followUser = async(req,res)=>{
     user.following.push(id);
     await user.save();
 
-    const toUser = await User.findbyId(id);
+    const toUser = await User.findById(id);
     toUser.followers.push(userId);
     await toUser.save();
     
@@ -197,56 +197,93 @@ export const sendConnectionRequest = async(req,res)=>{
 }
 
 //Get user connection
-export const getUserConnections = async(req,res)=>{
+export const getUserConnections = async (req, res) => {
   try {
-    const {userId} = req.auth();
-    const user = await User.findById(userId).populate('connections followers following');
+    const { userId } = req.auth();
 
-    const connections = user.connections;
-    const followers = user.followers;
-    const following = user.following;
+   const user = await User.findById(userId).populate(
+  "connections followers following"
+);
 
-    const pendingConnections = (await Connection.find({to_user_id : userId , status :'pending'}).populate('from_user_id'))
-    .map(connection=>connection.from_user_id);
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found in database.",
+      });
+    }
 
-    return res.json({success : true , connections,followers , following, pendingConnections});
+    const pendingConnections = await Connection.find({
+      to_user_id: userId,
+      status: "pending",
+    }).populate("from_user_id");
 
+    return res.json({
+      success: true,
+      connections: user.connections,
+      followers: user.followers,
+      following: user.following,
+      pendingConnections: pendingConnections.map(
+        (connection) => connection.from_user_id
+      ),
+    });
   } catch (error) {
-    console.log(error);
-    return res.json({success:false , message:error.message});
+    console.error("getUserConnections Error:", error);
+
+    return res.json({
+      success: false,
+      message: error.message,
+    });
   }
-}
+};
 
 //Accept Connection Request
-export const acceptConnectionRequest = async(req,res)=>{
-  try{
-      const {userId} = req.auth();
-      const {id} = req.body;
+export const acceptConnectionRequest = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { id } = req.body;
 
-     const connection = await Connection.findOne({from_user_id : id, to_user_id : userId});
+    const connection = await Connection.findOne({
+      from_user_id: id,
+      to_user_id: userId,
+    });
 
-     if(!connection){
-      return res.json({success : false , message : 'Connection not found'});
-     }
+    if (!connection) {
+      return res.json({
+        success: false,
+        message: "Connection not found",
+      });
+    }
 
-     const user = await User.findById(userId);
-     user.connections.push(id);
-     await user.save();
+    if (connection.status === "accepted") {
+      return res.json({
+        success: false,
+        message: "Connection already accepted",
+      });
+    }
 
-     const toUser = await User.findById(id);
-     toUser.connections.push(userId);
-     await toUser.save();
+    await User.findByIdAndUpdate(userId, {
+      $addToSet: { connections: id },
+    });
 
-     connection.status = 'accepted';
-     await Connection.save();
+    await User.findByIdAndUpdate(id, {
+      $addToSet: { connections: userId },
+    });
 
-     return res.json({success : true , message : 'Connection accepted successfully'});
+    connection.status = "accepted";
+    await connection.save();
 
-  }catch(error){
+    return res.json({
+      success: true,
+      message: "Connection accepted successfully",
+    });
+  } catch (error) {
     console.log(error);
-    return res.json({success:false , message:error.message});
+    return res.json({
+      success: false,
+      message: error.message,
+    });
   }
-}
+};
 
 //get user profiles
 export const getUserProfiles = async (req,res)=>{
