@@ -2,6 +2,7 @@ import fs from 'fs';
 import imagekit from '../configs/imageKit.js';
 import Post from '../models/Post.js';
 import User from '../models/User.js';
+import Comment from '../models/Comment.js';
 
 // add a new post
 export const addPost = async (req, res) => {
@@ -101,3 +102,133 @@ export const likePost = async(req,res)=>{
     return res.json({success : false , message : error.message});
   }
 }
+
+// Get comments for a post
+export const getComments = async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    const comments = await Comment.find({
+      post: postId
+    })
+      .populate(
+        'user',
+        'fullname username profile_picture'
+      )
+      .sort({
+        createdAt: -1
+      });
+
+    return res.json({
+      success: true,
+      comments
+    });
+
+  } catch (error) {
+    console.log(error);
+
+    return res.json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Add a comment
+export const addComment = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+
+    const { postId, content } = req.body;
+
+    // Check empty comment
+    if (!content || !content.trim()) {
+      return res.json({
+        success: false,
+        message: 'Comment cannot be empty'
+      });
+    }
+
+    // Find post
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      return res.json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    // Create comment
+    const comment = await Comment.create({
+      post: postId,
+      user: userId,
+      content: content.trim()
+    });
+
+    // Increase comment count
+    post.comments_count =
+      (post.comments_count || 0) + 1;
+
+    await post.save();
+
+    // Get user information
+    await comment.populate(
+      'user',
+      'fullname username profile_picture'
+    );
+
+    return res.json({
+      success: true,
+      comment,
+      message: 'Comment added'
+    });
+
+  } catch (error) {
+    console.log(error);
+
+    return res.json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Share a post
+export const sharePost = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+
+    const { postId } = req.body;
+
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      return res.json({
+        success: false,
+        message: 'Post not found'
+      });
+    }
+
+    // Make sure the same user is not counted twice
+    if (!post.shares_count.includes(userId)) {
+      post.shares_count.push(userId);
+
+      await post.save();
+    }
+
+    return res.json({
+      success: true,
+      sharesCount: post.shares_count.length,
+      message: 'Post shared successfully'
+    });
+
+  } catch (error) {
+    console.log(error);
+
+    return res.json({
+      success: false,
+      message: error.message
+    });
+  }
+};
